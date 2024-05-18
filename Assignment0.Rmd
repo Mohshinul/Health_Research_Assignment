@@ -1,0 +1,138 @@
+---
+title: "Assignment0 : Reproducible Research and Exploratory Data Analysis in R"
+author: "Mohshinul Karim"
+date: "2024-05-17"
+output: 
+  html_document: 
+    fig_width: 8
+    fig_height: 8
+    toc: yes
+    theme: journal
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+x<-2
+```
+
+```{r load-packages, warning=FALSE}
+#Load these packages
+
+library(tidyverse) 
+library(datasauRus)
+warning=FALSE
+```
+
+#Data 
+
+**1. Based on the help file, how many rows and how many columns does the datasaurus_dozen file have? What are the variables included in the data frame? (this can be hardcoded)**
+
+__Answer: A data frame with 1846 rows and 3 Columns. Variables: dataset, x, y.__
+
+
+```{r}
+# Make a frequency table of the 'dataset' variable to look at what these datasets:
+datasaurus_dozen %>%
+  count(dataset)
+```
+#Data visualization and summary
+
+**2. Plot y vs. x for the dino dataset. Then, calculate the correlation coefficient between x and y for this dataset**
+
+```{r}
+#Start with the datasaurus_dozen and pipe it into the filter function to filter for observations where dataset == "dino". Store the resulting filtered data frame as a new data frame called dino_data.
+dino_data <- datasaurus_dozen %>%
+  filter(dataset == "dino")
+```
+
+
+```{r fig.height=5, fig.width=9}
+#visualizing these data
+ggplot(data = dino_data, mapping = aes(x = x, y = y)) +
+  geom_point()
+```
+
+**Start with dino_data and calculate a summary statistic that we will call r as the correlation between x and y**
+```{r}
+dino_data %>%
+  summarize(r = cor(x, y))
+```
+**3. Plot y vs. x for the star dataset. You can (and should) reuse code we introduced above, just replace the dataset name with the desired dataset. Then, calculate the correlation coefficient between x and y for this dataset. How does this value compare to the r of dino?**
+
+
+```{r}
+#Create Star_data data frame
+star_data <- datasaurus_dozen %>%
+  filter(dataset == "star")
+```
+
+**Plot:**
+```{r fig.height=5, fig.width=5}
+ggplot(data = star_data, mapping = aes(x = x, y = y)) +
+  geom_point()
+```
+
+**Summarize:**
+```{r}
+star_data %>%
+  summarize(r = cor(x, y))
+```
+**Comparison: Dino Coefficient: -0.06447185	and star coefficient: -0.0629611. the absolute value is lower for star_data.** 
+
+**4. Plot y vs. x for the circle dataset. You can (and should) reuse code we introduced above, just replace the dataset name with the desired dataset. Then, calculate the correlation coefficient between x and y for this dataset. How does this value compare to the r of dino?**
+
+
+```{r}
+#Create circle_data data frame
+circle_data <- datasaurus_dozen %>%
+  filter(dataset == "circle")
+```
+
+**Plot:** 
+```{r fig.height=5, fig.width=5}
+ggplot(data = circle_data, mapping = aes(x = x, y = y)) +
+  geom_point()
+```
+
+**Summarize:**
+```{r}
+circle_data %>%
+  summarize(r = cor(x, y))
+```
+
+**comparison: Dino Coefficient: -0.06447185	and circle coefficient: -0.06834336. the absolute value is higher for circle_data.** 
+
+
+
+**5. Finally, let’s plot all datasets at once. In order to do this we will make use of facetting**
+```{r fig.height=12, fig.width=10}
+# Create the faceted plot
+ggplot(datasaurus_dozen, aes(x = x, y = y, color = dataset))+
+  geom_point()+
+  facet_wrap(~ dataset, ncol = 3) +
+  theme(legend.position = "none") +
+   labs(title = "Datasaurus Dozen Datasets", x = "X", y = "Y")
+```
+
+
+```{r}
+#using the group_by function to generate all correlation coefficients. 
+# Defining r as the correlation coefficient
+
+datasaurus_dozen %>%
+  group_by(dataset) %>%
+  summarize(r = cor(x, y))
+```
+
+
+It was Fun!!!
+                          
+<mark> Thank YOU </mark>.
+
+
+
+
+
