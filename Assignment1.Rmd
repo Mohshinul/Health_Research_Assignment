@@ -1,5 +1,5 @@
 ---
-title: "Assignment1"
+title: "Assignment1 : Medical Databases "
 author: "Mohshinul Karim"
 date: "2024-05-18"
 output: html_document
@@ -8,7 +8,6 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-
 
 library(readr)          # Data Input
 library(tidymodels)     # Data Manipulation
@@ -24,4 +23,368 @@ library(pROC)           # Metrics
 library(caret)          # Machine Learning
 library(xgboost)        # xgboost model
 ```
+
+## Understanding the data
+
+
+### Q1. Use the data dictionary describe each of the variables/features in the CSV in your report.
+
+
+### Answer 1:
+
+There are **14** variables. The description is given below
+
+**1. PatientID:** Unique identifier for each patient
+**2. AppointmentID:** Unique identifier to each appointment 
+**3. Gender:** Patient Gender (limited to Male or Female)
+**4. ScheduledDate:** date on which the appointment was scheduled
+**5. AppointmentDate:** date of the actual appointment
+**6. Age:** Patient age
+**7. Neighbourhood:** District of Vitória in which the appointment 
+**8. SocialWelfare:** Patient is a recipient of Bolsa Família welfare payments
+**9. Hypertension:** Patient previously diagnoised with hypertensio (Boolean)
+**10. Diabetes:** Patient previously diagnosed with diabetes (Boolean)
+**11. AlcoholUseDisorder:** Patient previously diagnosed with alcohol use disorder (Boolean)
+**12. Disability:** Patient previously diagnosed with a disability (severity rated 0-4)
+**13. SMSReceived:** At least 1 reminder text sent before appointment (Boolean)
+**14. NoShow:** Patient did not attend scheduled appointment
+
+
+### Q2. Can you think of 3 hypotheses for why someone may be more likely to miss a medical appointment?
+
+### Answer 2:
+**1.**Gender
+**2.**Hypertention 
+**3.**SMSReceived
+
+
+### Q3. Can you provide 3 examples of important contextual information that is missing in this data dictionary and dataset that could impact your analyses e.g., what type of medical appointment does each `AppointmentID` refer to?** 
+
+### Answer 3:
+**1.** Previous missing history
+**2.** Reason for Appointment
+**3.** Have insurance
+
+
+
+
+## Data Parsing and Cleaning
+
+
+
+### Q4. Modify the following to make it reproducible i.e., downloads the data file directly from version control
+
+```{r}
+raw.data <- read_csv('/Users/mohshinulkarim/Documents/Dal/Health Research/Practical 1/2016_05v2_VitoriaAppointmentData.csv', col_types='fffTTifllllflf')
+#raw.data <- readr::read_csv('https://raw.githubusercontent.com/maguire-lab/health_data_science_research_2024/ ... ')
+```
+
+Now we need to check data is valid () because we specified col_types and the data parsed without error most of our data seems to at least be formatted as we expect i.e., ages are integers)
+
+```{r}
+raw.data %>% filter(Age > 110)
+```
+We can see there are 2 patient’s older than 110 which seems suspicious but we can’t actually say if this is impossible.
+
+
+
+### Q5. Are there any individuals with impossible ages? If so we can drop this row using `filter` i.e., `data <- data %>% filter(CRITERIA)`**
+
+```{r}
+#Finding the the impossible observation (Since age can't be negative we are filtaring to check whethere there is any negative age)
+raw.data %>% filter(Age <0)
+```
+
+```{r}
+#Droping negative age observation
+data<- raw.data %>% filter(Age >=0)
+```
+
+### Answer 5:
+There is 1 observation with negative age. which is impossible. 
+
+
+## Exploratory Data Analysis
+First, we should get an idea if the data meets our expectations, there are newborns in the data (Age==0) and we wouldn’t expect any of these to be diagnosed with Diabetes, Alcohol Use Disorder, and Hypertension (although in theory it could be possible). We can easily check this:
+
+```{r}
+data %>% filter(Age == 0) %>% select(Hypertension, Diabetes, AlcoholUseDisorder) %>% unique()
+```
+
+We can also explore things like how many different neighborhoods are there and how many appoints are from each?
+
+```{r}
+count(data, Neighbourhood, sort = TRUE)
+```
+
+### Q6 What is the maximum number of appointments from the same patient?
+
+### Answer 6:  
+88 by the same patient
+
+```{r}
+count(data, PatientID, sort = TRUE)
+# sort = TRUE is used for sorting from largest to smaller of the count
+```
+
+## Let’s explore the correlation between variables:
+
+```{r}
+#(My note: Step1: Simply We have defined the corplot function. Step 2: convert all columns in the "data" data frame to numeric and generate a new df: numaric.data. step3: insurt the numaric.data to the defined corplot function to get the correlation graph.)
+# let's define a plotting function
+
+corplot = function(df){
+  
+  cor_matrix_raw <- round(cor(df),2)
+  cor_matrix <- melt(cor_matrix_raw)
+  
+  
+  #Get triangle of the correlation matrix
+  #Lower Triangle
+  get_lower_tri<-function(cor_matrix_raw){
+    cor_matrix_raw[upper.tri(cor_matrix_raw)] <- NA
+    return(cor_matrix_raw)
+  }
+  
+  # Upper Triangle
+  get_upper_tri <- function(cor_matrix_raw){
+    cor_matrix_raw[lower.tri(cor_matrix_raw)]<- NA
+    return(cor_matrix_raw)
+  }
+  
+  upper_tri <- get_upper_tri(cor_matrix_raw)
+  
+  # Melt the correlation matrix
+  cor_matrix <- melt(upper_tri, na.rm = TRUE)
+  
+  # Heatmap Plot
+  cor_graph <- ggplot(data = cor_matrix, aes(Var2, Var1, fill = value))+
+    geom_tile(color = "black")+
+    scale_fill_gradient2(low = "purple", high = "orangered", mid = "gray", 
+                         midpoint = 0, limit = c(-1,1), space = "Lab", 
+                         name="Pearson\nCorrelation") +
+    theme_minimal()+ 
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                     size = 8, hjust = 1))+
+    coord_fixed()+ geom_text(aes(Var2, Var1, label = value), color = "black", size = 2) +
+    theme(
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.border = element_blank(),
+      panel.background = element_blank(),
+      axis.ticks = element_blank())+
+      ggtitle("Correlation Heatmap")+
+      theme(plot.title = element_text(hjust = 0.5))
+  
+  cor_graph
+}
+
+numeric.data = mutate_all(data, function(x) as.numeric(x))
+
+# Plot Correlation Heatmap
+corplot(numeric.data)
+```
+
+### Q7. Which parameters most strongly correlate with missing appointments (NoShow)?
+
+### Answer 7: 
+**ScheduledDate** showes the most strongly absolute correlation with the missing appointment(-0.16). As the sign is negative it implies a negative correlation between the two variables. On the other hand SMSRecieved has the highest positive correlation with no show (0.13). The outcome looks contradictory though. May be some other factor are behind this result. One possibility can be thous who have more possibility (depending on location, gender or any other condition) to miss the appointment are typically get the reminder.  
+
+### Q8. Are there any other variables which strongly correlate with one another?
+
+### Answer 8:
+PatientID and AppointmentID **(0.65),**,
+AppointmentID and AppointmentDate **(0.61),**
+AppointmentDate AND ScheduledDate **(0.61),**
+Age and Hypertension **(0.50),**
+Diabetes and Hypertension **(0.43),**
+And highest negative corellation is in between ScheduledDate and SMSReceived(**(-0.26)**
+
+### Q9. Do you see any issues with PatientID/AppointmentID being included in this plot?
+
+### Answer 9:
+
+Yes, as the ID are typically assigned sequentially, and don't carry any inherent information of the characteristics of the patients or there appointments, they does not have any meaningful insights.Since they are sequential in nature, that may be reason of high correlation between them, which is misleading the overall interpretation of the model.It might overshadow more subtle, but meaningful correlations among other variables due to the large numerical values typically associated with ID fields. 
+
+####Let’s look at some individual variables and their relationship with NoShow.
+
+```{r}
+ggplot(data) + 
+  geom_density(aes(x=Age, fill=NoShow), alpha=0.6) + 
+  ggtitle("Density of Age by Attendence")
+```
+
+There does seem to be a difference in the distribution of ages of people that miss and don’t miss appointments.
+However, the shape of this distribution means the actual correlation is near 0 in the heatmap above. This highlights the need to look at individual variables.
+
+##### Let’s take a closer look at age by breaking it into categories.
+
+```{r}
+data <- data %>% mutate(Age.Range=cut_interval(Age, length=10))
+
+ggplot(data) + 
+  geom_bar(aes(x=Age.Range, fill=NoShow)) + 
+  ggtitle("Amount of No Show across Age Ranges")
+```
+
+```{r}
+ggplot(data) + 
+  geom_bar(aes(x=Age.Range, fill=NoShow), position='fill') + 
+  ggtitle("Proportion of No Show across Age Ranges")
+```
+
+### Q10. 10 How could you be misled if you only plotted 1 of these 2 plots of attendance by age group?
+
+### Answer 10:
+If we look only absolute counts, We may draw the conclusion the no show are bigger problem in the range with heights counts and individual of that group is more likely to miss the appointment. But the appointment from that group may be even higher.
+
+However, looking at the proportion can be misleading too. like age range 110-120 the no show is really high but since the overall population of that group is really low. As a result that may not have much impact on policy decision as the overall impact of that group on the healthcare system is minimal compared to the larger groups. 
+
+Therefore, both perspectives are crucial: absolute counts reveal where the bulk of the problem lies in terms of total numbers, and proportions highlight the likelihood of no-shows within each age group. For instance, although individuals over 90 are few and unlikely to affect overall distributions significantly, the 10-20 age group is nearly twice as likely to miss appointments compared to the 60-70 age group, demonstrating the importance of considering both absolute counts and proportions for a comprehensive understanding.
+
+### Next, we’ll have a look at SMSReceived variable:
+
+```{r}
+ggplot(data) + 
+  geom_bar(aes(x=SMSReceived, fill=NoShow), alpha=200) + 
+  ggtitle("Attendance by SMS Received")
+```
+
+```{r}
+ggplot(raw.data) + 
+  geom_bar(aes(x=SMSReceived, fill=NoShow), position='fill', alpha=5) + 
+  ggtitle("Proportion Attendance by SMS Received")
+```
+
+### Q11 From this plot does it look like SMS reminders increase or decrease the chance of someone not attending an appointment? Why might the opposite actually be true (hint: think about biases)?
+
+### Answer 11:
+From the plot we can see the increasing chance of someone not attending an appointment. The outcome should be opposite ( inverse relationship between the two)
+We can identify several possible bias of this paradoxical outcome. 
+** Selection bias:** The SMS reminder may be given to the targeted people who are highly likely to miss the appointment. So without the reminder there no show possibility could be even higher.
+
+### Q12 Create a similar plot which compares the the density of NoShow across the values of disability.
+
+### Answer 12:
+
+```{r}
+#check the data
+count(data, Disability, sort = TRUE)
+```
+
+```{r}
+ggplot(data) + 
+  geom_bar(aes(x=Disability, fill=NoShow), alpha=200) + 
+  ggtitle("Attendance by Disability")
+```
+
+```{r}
+ggplot(raw.data) + 
+  geom_bar(aes(x=Disability, fill=NoShow), position='fill', alpha=5) + 
+  ggtitle("Proportion Attendance by Disability")
+```
+
+### Now let’s look at the neighbourhood data as location can correlate highly with many social determinants of health.
+
+```{r}
+ggplot(data) + 
+  geom_bar(aes(x=Neighbourhood, fill=NoShow)) + 
+  theme(axis.text.x = element_text(angle=45, hjust=1, size=5)) + 
+  ggtitle('Attendance by Neighbourhood')
+```
+
+```{r}
+ggplot(data) + 
+  geom_bar(aes(x=Neighbourhood, fill=NoShow), position='fill') + 
+  theme(axis.text.x = element_text(angle=45, hjust=1, size=5)) + 
+  ggtitle('Proportional Attendance by Neighbourhood')
+```
+
+### Q13 Suggest a reason for differences in attendance rates across neighbourhoods.
+
+
+### Answer 13:
+Transportatin can be a cause
+
+
+### Now let’s explore the relationship between gender and NoShow.
+
+```{r}
+# Create a contingency table
+attendance_table <- table(data$Gender, data$NoShow)
+attendance_table
+```
+
+
+```{r}
+# Summarize the data
+attendance_summary_Gender <- data %>%
+  group_by(Gender, NoShow) %>%
+  summarise(Count = n()) %>%
+  ungroup()
+
+# Print the summary
+print(attendance_summary_Gender)
+```
+
+
+```{r}
+ggplot(data) + 
+  geom_bar(aes(x=Gender, fill=NoShow))+
+  ggtitle("Gender by attendance")
+```
+
+```{r}
+# Calculate proportions
+attendance_proportions_Gender <- data %>%
+  group_by(Gender, NoShow) %>%
+  summarise(Count = n()) %>%
+  mutate(Proportion = Count / sum(Count)) %>%
+  ungroup() %>%
+  select(Gender, NoShow, Proportion)
+
+# Pivot the table for a cleaner display
+attendance_proportions_pivot <- attendance_proportions_Gender %>%
+  pivot_wider(names_from = NoShow, values_from = Proportion)
+
+# Print the table
+print(attendance_proportions_pivot)
+
+```
+
+```{r}
+ggplot(data) + 
+  geom_bar(aes(x=Gender, fill=NoShow), position='fill')+
+  ggtitle("Proportion Gender by attendance")
+```
+
+### Q14 Create a similar plot using SocialWelfare.
+
+```{r}
+#check the data
+count(data, SocialWelfare, sort = TRUE)
+```
+
+```{r}
+ggplot(data) + 
+  geom_bar(aes(x=SocialWelfare, fill=NoShow))+
+  ggtitle("SocialWelfare by attendance")
+```
+
+```{r}
+ggplot(data) + 
+  geom_bar(aes(x=SocialWelfare, fill=NoShow), position='fill')+
+  ggtitle("SocialWelfare by attendance")
+```
+
+##Feature Engineering
+
+
+
+
+
+
+
+
 
