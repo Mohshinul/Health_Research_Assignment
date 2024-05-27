@@ -79,7 +79,7 @@ raw.data <- read_csv('/Users/mohshinulkarim/Documents/Dal/Health Research/Practi
 #raw.data <- readr::read_csv('https://raw.githubusercontent.com/maguire-lab/health_data_science_research_2024/ ... ')
 ```
 
-Now we need to check data is valid () because we specified col_types and the data parsed without error most of our data seems to at least be formatted as we expect i.e., ages are integers)
+Now we need to check data is valid : because we specified col_types and the data parsed without error most of our data seems to at least be formatted as we expect i.e., ages are integers)
 
 ```{r}
 raw.data %>% filter(Age > 110)
@@ -91,7 +91,7 @@ We can see there are 2 patient’s older than 110 which seems suspicious but we 
 ### Q5. Are there any individuals with impossible ages? If so we can drop this row using `filter` i.e., `data <- data %>% filter(CRITERIA)`**
 
 ```{r}
-#Finding the the impossible observation (Since age can't be negative we are filtaring to check whethere there is any negative age)
+#Finding the the impossible observation (Since age can't be negative we are filtering to check whether there is any negative age)
 raw.data %>% filter(Age <0)
 ```
 
@@ -116,6 +116,14 @@ We can also explore things like how many different neighborhoods are there and h
 ```{r}
 count(data, Neighbourhood, sort = TRUE)
 ```
+
+```{r}
+Data_count<- count(data, NoShow, sort = TRUE) %>%
+  mutate(Percentage = round(n / sum(n) * 100, 2)) # rounding to 2 decimal places
+# Print the result
+print(Data_count)
+```
+
 
 ### Q6 What is the maximum number of appointments from the same patient?
 
@@ -207,7 +215,7 @@ And highest negative corellation is in between ScheduledDate and SMSReceived(**(
 
 Yes, as the ID are typically assigned sequentially, and don't carry any inherent information of the characteristics of the patients or there appointments, they does not have any meaningful insights.Since they are sequential in nature, that may be reason of high correlation between them, which is misleading the overall interpretation of the model.It might overshadow more subtle, but meaningful correlations among other variables due to the large numerical values typically associated with ID fields. 
 
-####Let’s look at some individual variables and their relationship with NoShow.
+### Let’s look at some individual variables and their relationship with NoShow.
 
 ```{r}
 ggplot(data) + 
@@ -378,11 +386,278 @@ ggplot(data) +
   ggtitle("SocialWelfare by attendance")
 ```
 
-##Feature Engineering
+### Feature Engineering
+
+```{r}
+engineering.data <- data %>% mutate(AppointmentDay = wday(AppointmentDate, label=TRUE, abbr=TRUE), 
+                                 ScheduledDay = wday(ScheduledDate,  label=TRUE, abbr=TRUE))
+
+ggplot(engineering.data) +
+  geom_bar(aes(x=AppointmentDay, fill=NoShow)) +
+  ggtitle("Amount of No Show across Appointment Day") 
+```
+
+```{r}
+ggplot(engineering.data) +
+  geom_bar(aes(x=AppointmentDay, fill=NoShow), position = 'fill') +
+  ggtitle("Proportion of No Show across Appointment Day") 
+```
+
+Let’s begin by creating a variable called Lag, which is the difference between when an appointment was scheduled and the actual appointment.
+```{r}
+en.data <- engineering.data %>% mutate(Lag.days=difftime(AppointmentDate, ScheduledDate, units = "days"),
+                                Lag.hours=difftime(AppointmentDate, ScheduledDate, units = "hours"))
+
+ggplot(en.data) + 
+  geom_density(aes(x=Lag.days, fill=NoShow), alpha=0.4)+
+  ggtitle("Density of Lag (days) by attendance")
+```
+
+```{r}
+ggplot(en.data) + 
+  geom_density(aes(x=Lag.hours, fill=NoShow), alpha=0.4)+
+  ggtitle("Density of Lag (hours) by attendance")
+```
+
+### Q15 Have a look at the values in lag variable, does anything seem odd?
+
+### Answer 15:
+
+A number of lag values are negative which usually indicates that the data has inconsistencies or errors. 
+
+```{r}
+# Finding how many lag day are negative
+# Filter the data to find observations where AppointmentDate > ScheduledDate
+invalid_appointments <- en.data %>%
+  filter(AppointmentDate > ScheduledDate)
+
+# Count the number of such observations
+num_invalid_appointments <- nrow(invalid_appointments)
+
+# Print the number of invalid appointments
+print(num_invalid_appointments)
+
+# Optionally, view the invalid appointments
+#print(invalid_appointments)
+
+```
+
+```{r}
+#Checking whether there is any issue with date formatting which may cause this inconsistency
+en2.data <- en.data %>%
+  mutate(AppointmentDate = as.Date(AppointmentDate, format = "%Y-%m-%d"),
+         ScheduledDate = as.Date(ScheduledDate, format = "%Y-%m-%d"))
+```
+
+```{r}
+# Finding how many lag day are negative
+# Filter the data to find observations where AppointmentDate > ScheduledDate
+invalid_appointments2 <- en2.data %>%
+  filter(AppointmentDate > ScheduledDate)
+
+# Count the number of such observations
+num_invalid_appointments2 <- nrow(invalid_appointments2)
+
+# Print the number of invalid appointments
+print(num_invalid_appointments2)
+
+# Optionally, view the invalid appointments
+#print(invalid_appointments)
+```
+
+#### After correcting the format invalid observation are same. We can investigate and Correct (if possible) the data but I dont have sufficient domain knowledge or additional data to do so.So we can remove anomalies by removing the obsarvations form DF
+
+```{r}
+# Remove records with invalid dates, As we want to keep the Lag day as a predictor we are removing the nevative values.   
+cleaned_data <- en.data %>%
+  filter(AppointmentDate <= ScheduledDate)
+```
+
+```{r}
+# Get the total number of observations
+total_observations <- nrow(cleaned_data)
+print(paste("Total number of observations:", total_observations))
+```
+
+```{r}
+Data_count2<- count(cleaned_data, NoShow, sort = TRUE) %>%
+  mutate(Percentage = round(n / sum(n) * 100, 2)) # rounding to 2 decimal places
+# Print the result
+print(Data_count2)
+```
+
+
+## Predictive Modeling
+Let’s see how well we can predict NoShow from the data.
+
+We’ll start by preparing the data, followed by splitting it into testing and training set, modeling and finally, evaluating our results. For now we will subsample but please run on full dataset for final execution.
+```{r}
+### REMOVE SUBSAMPLING FOR FINAL MODEL
+data.prep <- cleaned_data %>% select(-AppointmentID, -PatientID) #%>% sample_n(10000)
+
+set.seed(42)
+data.split <- initial_split(data.prep, prop = 0.7)
+train  <- training(data.split)
+test <- testing(data.split)
+```
+
+Let’s now set the cross validation parameters, and add classProbs so we can use AUC as a metric for xgboost.
+
+```{r}
+fit.control <- trainControl(method="cv",number=3,
+                           classProbs = TRUE, summaryFunction = twoClassSummary)
+```
+
+### Q16 Based on the EDA, how well do you think this is going to work?
+### Answer 16: 
+I am thing the model should work well
 
 
 
+```{r}
+#Now we can train our XGBoost model
+xgb.grid <- expand.grid(eta=c(0.05),
+                       max_depth=c(4),colsample_bytree=1,
+                       subsample=1, nrounds=500, gamma=0, min_child_weight=5)
 
+xgb.model <- train(NoShow ~ .,data=train, method="xgbTree",metric="ROC",
+                  tuneGrid=xgb.grid, trControl=fit.control)
+
+xgb.pred <- predict(xgb.model, newdata=test)
+xgb.probs <- predict(xgb.model, newdata=test, type="prob")
+```
+
+```{r}
+test <- test %>% mutate(NoShow.numerical = ifelse(NoShow=="Yes",1,0))
+confusionMatrix(xgb.pred, test$NoShow, positive="Yes")
+```
+
+```{r}
+paste("XGBoost Area under ROC Curve: ", round(auc(test$NoShow.numerical, xgb.probs[,2]),3), sep="") 
+```
+This isn’t an unreasonable performance, but let’s look a bit more carefully at the correct and incorrect predictions,
+```{r}
+xgb.probs$Actual = test$NoShow.numerical
+xgb.probs$ActualClass = test$NoShow
+xgb.probs$PredictedClass = xgb.pred
+xgb.probs$Match = ifelse(xgb.probs$ActualClass == xgb.probs$PredictedClass,
+                         "Correct","Incorrect")
+# [4.8] Plot Accuracy
+xgb.probs$Match = factor(xgb.probs$Match,levels=c("Incorrect","Correct"))
+ggplot(xgb.probs,aes(x=Yes,y=Actual,color=Match))+
+  geom_jitter(alpha=0.2,size=0.25)+
+  scale_color_manual(values=c("grey40","orangered"))+
+  ggtitle("Visualizing Model Performance", "(Dust Plot)")
+```
+
+
+
+```{r}
+#Finally, let’s close it off with the variable importance of our model:
+results = data.frame(Feature = rownames(varImp(xgb.model)$importance)[1:10],
+                     Importance = varImp(xgb.model)$importance[1:10,])
+results <- results[order(results$Importance, decreasing = TRUE), ]
+results$Feature = factor(results$Feature,levels=results$Feature)
+
+
+# [4.10] Plot Variable Importance
+ggplot(results, aes(x=Feature, y=Importance,fill=Importance))+
+  geom_bar(stat="identity")+
+  scale_fill_gradient(low="grey20",high="orangered")+
+  ggtitle("XGBoost Variable Importance")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  coord_flip()  # Flip coordinates to put variable names on the vertical axis
+  
+```
+
+### Q17 Using the caret package fit and evaluate 1 other ML model on this data.
+### Answer 17:
+We can use **Random Forest** model form **caret** package.
+
+```{r}
+# Define the grid for hyperparameter tuning
+rf.grid <- expand.grid(mtry = c(2, 3, 4))
+
+# Train the Random Forest model
+rf.model <- train(NoShow ~ ., data=train, method="rf", metric="ROC",
+                  tuneGrid=rf.grid, trControl=fit.control)
+
+# Make predictions
+rf.pred <- predict(rf.model, newdata=test)
+rf.probs <- predict(rf.model, newdata=test, type="prob")
+
+```
+
+Evaluate the Random Forest Model
+```{r}
+# Add numerical NoShow column for ROC calculation
+test <- test %>% mutate(NoShow.numerical = ifelse(NoShow == "Yes", 1, 0))
+
+# Confusion Matrix
+confusionMatrix(rf.pred, test$NoShow, positive="Yes")
+
+# Calculate Area Under the ROC Curve (AUC)
+paste("Random Forest Area under ROC Curve: ", round(auc(test$NoShow.numerical, rf.probs[,2]), 3), sep="")
+
+```
+
+Visualize Model Performance
+```{r}
+# Prepare data for visualization
+rf.probs$Actual <- test$NoShow.numerical
+rf.probs$ActualClass <- test$NoShow
+rf.probs$PredictedClass <- rf.pred
+rf.probs$Match <- ifelse(rf.probs$ActualClass == rf.probs$PredictedClass, "Correct", "Incorrect")
+
+# Plot Accuracy
+rf.probs$Match <- factor(rf.probs$Match, levels=c("Incorrect", "Correct"))
+ggplot(rf.probs, aes(x=Yes, y=Actual, color=Match)) +
+  geom_jitter(alpha=0.2, size=0.25) +
+  scale_color_manual(values=c("grey40", "orangered")) +
+  ggtitle("Visualizing Model Performance", "(Dust Plot)")
+
+```
+
+Variable Importance
+```{r}
+# Get variable importance for Random Forest
+rf.importance <- varImp(rf.model)
+```
+
+
+```{r}
+# Prepare data for plotting, ensuring all features are included
+rf.results <- data.frame(Feature = rownames(rf.importance$importance),
+                         Importance = rf.importance$importance[,1])
+# Order the features by importance
+rf.results <- rf.results[order(rf.results$Importance, decreasing = TRUE), ]
+
+# Keep only the top 10 features
+rf.results <- rf.results[1:10, ]
+rf.results$Feature <- factor(rf.results$Feature, levels = rf.results$Feature)
+
+# Plot Variable Importance for Random Forest
+ggplot(rf.results, aes(x=Feature, y=Importance, fill=Importance)) +
+  geom_bar(stat="identity") +
+  scale_fill_gradient(low="grey20", high="orangered") +
+  ggtitle("Random Forest Variable Importance") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip()  # Flip coordinates to put variable names on the vertical axis
+
+```
+
+### Q18 Based on everything, do you think we can trust analyses based on this dataset? Explain your reasoning.
+
+### Answer 18: 
+Based on the analysis and the dust plot, it appears that your both Random Forest (RF) model and XGboost model perform better at predicting the "0" class (patients who show up for their appointments) compared to the "1" class (patients who do not show up).
+
+There is a dense cluster of red points in the bottom-left corner, indicating that the model correctly predicts many of the patients who show up (low predicted probability for "Yes" when Actual is 0). This suggests that the model is effective at identifying patients who will attend their appointments.
+
+However, there are fewer red points in the top-right corner, which indicates that the model correctly predicts fewer no-shows (high predicted probability for "Yes" when Actual is 1). This suggests that the models struggles more with correctly identifying patients who will not show up for their appointments.
+
+Since the problem true for both of the models we can assume that the problem is with the data set, whcih have limited capacity to predict the no show. 
+
+Since I removed the negative lag day observation ( as It is the most strong predictor in the given example I needed to use this variable and we can not use it with out cleaning the impossible observations.) the no show positive observation become really less(4.66%). Which may be a cause of the limitation of the data. So we need more information or improved data to predic the no show better.
 
 
 
